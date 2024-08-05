@@ -1,0 +1,21 @@
+filters:
+  - label: 🔥bug
+    regexs:
+      - /\bfix\b|bug/
+    events: [issues, pull_request]
+    targets: [title, comment]
+  - label: 🚀feature
+    regexs:
+      - /\bfeat\b|feat/
+  - label: 📝docs
+    regexs:
+      - /\bdocs\b|docs/
+  - label: 🚧chore
+    regexs:
+      - /\bchore\b|chore/
+  - label: 🚁infra
+    regexs:
+      - /\binfra\b|infra/
+  - label: ✅test
+    regexs:
+      - /\btest\b|test/

@@ -1,0 +1,15 @@
+version: '3.7'
+services:
+  ounwan-nest-green:
+    image: ounwan-nest
+    container_name: ounwan-nest-green
+    build: .
+    privileged: true
+    ports:
+      - '4002:40000'
+    environment:
+      - PORT=40000
+      - NODE_ENV=production
+    volumes:
+      - /var/log/ounwan-nest:/app/logs
+      - /var/static/ounwan:/app/static

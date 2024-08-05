@@ -1,0 +1,235 @@
+name: ounwan-nest-docker-image
+on:
+  push:
+    branches: 
+      - "main"
+      - "dev"
+
+jobs:
+
+  checkout:
+    runs-on: [self-hosted, ounwan-nest-runner]
+    steps:
+      - name: 🛒 Checkout        
+        id: checkout
+        uses: actions/checkout@v4
+
+
+
+
+
+  build_start:
+    needs: checkout
+    if: contains(github.event.head_commit.message, '[skip]') != true
+    runs-on: [self-hosted, ounwan-nest-runner]
+    steps:
+      - name: 🚀 build_start
+        run: 
+          echo "> 빌드 시작"
+
+
+
+
+  dev_build:
+    needs: build_start
+    if: github.ref == 'refs/heads/dev'    
+    runs-on: [self-hosted, ounwan-nest-runner]
+    steps:
+      - name: 🚀 dev_docker_build_start
+        run: |
+          sudo docker-compose -f dockerDev-compose.yml up -d --build
+
+
+
+
+
+
+
+  current_port_check:
+    needs: build_start
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, ounwan-nest-runner]
+    outputs:
+      port_output: ${{ steps.output.outputs.port_output }}
+    steps:
+      - id: output
+        name: 👓 site_document_check
+        env:
+          BLUE_PORT: ${{ secrets.BLUE_PORT }}
+        run: |
+          is_blue_document=$(curl -s http://localhost:$BLUE_PORT/health | grep "UP" | wc -l)
+          if [ $is_blue_document -ge 1 ]
+          then
+              echo "port_output=green_start" >> $GITHUB_OUTPUT
+          else
+              echo "port_output=blue_start" >> $GITHUB_OUTPUT
+          fi 
+
+  
+  docker_green_build:
+    needs: current_port_check
+    if: ${{needs.current_port_check.outputs.port_output == 'green_start'}}
+    runs-on: [self-hosted, ounwan-nest-runner]
+    steps:
+      - name: 💚 🚀 green_start
+        run: |
+          sudo docker-compose -f docker-compose-green.yml up --renew-anon-volumes -d --build
+
+
+  docker_blue_build:
+      needs: current_port_check
+      if: ${{needs.current_port_check.outputs.port_output == 'blue_start'}}
+      runs-on: [self-hosted, ounwan-nest-runner]
+      steps:
+        - name: 💙 🚀 blue_start
+          run: |
+            sudo docker-compose -f docker-compose-blue.yml up --renew-anon-volumes -d --build
+  
+
+
+
+
+
+  green_build_success:
+    needs: docker_green_build
+    runs-on: [self-hosted, ounwan-nest-runner]
+    steps:
+      - name: 💚 ✅ green_build_success
+        env:
+          GREEN_PORT: ${{ secrets.GREEN_PORT }}
+          RESTORE_PORT: ${{ secrets.RESTORE_PORT }}
+        run: |
+          for retry_count in {1..5}
+          do
+            is_green_document=$(curl -s http://localhost:$GREEN_PORT/health | grep "UP" | wc -l)
+            if [ $is_green_document -ge 1 ]
+            then
+                echo "> 그린포트 Document 확인 완료"
+
+                echo "> 엔진엑스 블루포트 -> 그린포트 포트전환 시작"
+                echo "set \$service_url http://127.0.0.1:$GREEN_PORT;" |sudo tee /etc/nginx/conf.d/ounwan-nest-url.inc
+                echo "> 포트전환완료"
+
+                echo "> 엔진엑스 재시작"
+                sudo nginx -s reload
+                echo "> 사이트 배포 완료"
+                
+                
+            
+                echo "> 백업 컨테이너 생성 시작"
+                docker commit ounwan-nest-blue ounwan-nest-copy
+                sleep 3
+
+                echo "> 백업 컨테이너가 실행중인 경우 삭제"
+                if docker ps -a | grep -q ounwan-nest-backup; then
+                    echo "> 백업 컨테이너를 삭제합니다..."
+                    sudo docker rm -f ounwan-nest-backup
+                fi
+                
+                sleep 3
+                echo "> 그린포트 정상적으로 실행중 이므로 블루포트 중단"
+                sudo docker stop ounwan-nest-blue
+                sleep 3
+                docker run -d -p $RESTORE_PORT:40000 --name ounwan-nest-backup ounwan-nest-copy
+                sleep 3
+                sudo docker rm ounwan-nest-blue
+                sleep 3
+                break
+            else
+                echo "> 그린 Document 찾을 수 없음...."
+            fi
+
+            if [ $retry_count -eq 5 ]
+            then
+              echo "> 그린포트 빌드 실패!!!"
+              echo "> 배포를 종료합니다..."
+              exit 1
+            fi
+            echo "> 그린 Document 연결 실패 재시도"
+          done
+
+
+
+
+
+
+
+          
+  blue_build_success:
+    needs: docker_blue_build
+    runs-on: [self-hosted, ounwan-nest-runner]
+    steps:
+      - name: 💙 ✅ blue_build_success
+        env:
+          BLUE_PORT: ${{ secrets.BLUE_PORT }}
+          RESTORE_PORT: ${{ secrets.RESTORE_PORT }}
+        run: |
+          for retry_count in {1..5}
+          do
+            is_blue_document=$(curl -s http://localhost:$BLUE_PORT/health | grep "UP" | wc -l)
+            if [ $is_blue_document -ge 1 ]
+            then
+                echo "> 블루포트 Document 확인 완료"
+
+                echo "> 엔진엑스 그린포트 -> 블루포트 포트전환 시작"
+                echo "set \$service_url http://127.0.0.1:$BLUE_PORT;" |sudo tee /etc/nginx/conf.d/ounwan-nest-url.inc
+                echo "> 포트전환완료"
+
+                echo "> 엔진엑스 재시작"
+                sudo nginx -s reload
+                echo "> 사이트 배포 완료"
+            
+            
+            
+                echo "> 백업 컨테이너 생성 시작"
+                docker commit ounwan-nest-green ounwan-nest-copy
+                sleep 3
+                echo "> 블루포트 정상적으로 실행중 이므로 그린포트 중단"
+                sudo docker stop ounwan-nest-green
+                sleep 3
+
+                echo "> 백업 컨테이너가 실행중인 경우 삭제"
+                if docker ps -a | grep -q ounwan-nest-backup; then
+                    echo "> 백업 컨테이너를 삭제합니다..."
+                    sudo docker rm -f ounwan-nest-backup
+                fi
+                
+                sleep 3
+                docker run -d -p $RESTORE_PORT:40000 --name ounwan-nest-backup ounwan-nest-copy
+                sleep 3
+                sudo docker rm ounwan-nest-green
+                sleep 3
+
+                break
+            else
+                echo "> 블루 Document 찾을 수 없음...."
+            fi
+
+            if [ $retry_count -eq 5 ]
+            then
+              echo "> 블루포트 빌드 실패!!!"
+              echo "> 배포를 종료합니다..."
+              exit 1
+            fi
+            echo "> 블루 Document 연결 실패 재시도"
+          done
+
+
+
+
+  old_image_prune:
+    if: ${{ always() }}
+    needs: [blue_build_success, green_build_success]
+    runs-on: [self-hosted, ounwan-nest-runner]
+    steps:
+      - name: ❌ Prune Old Images
+        run: sudo docker image prune -f
+
+
+
+  all_actions_success:
+    needs: [old_image_prune]
+    runs-on: [self-hosted, ounwan-nest-runner]
+    steps:
+      - name: 🎉 All Actions Successful
+        run: echo "CI/CD action workflow have been successfully completed!"

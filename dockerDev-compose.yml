@@ -1,0 +1,15 @@
+version: '3.3'
+services:
+  ounwan-nest-dev:
+    image: ounwan-nest-dev
+    container_name: ounwan-nest-dev
+    build:
+      context: .
+      dockerfile: DockerfileDev
+    ports:
+      - '4004:40001'
+    environment:
+      - PORT=40001
+      - NODE_ENV=dev
+    volumes:
+      - /var/log/ounwan-nest-dev:/app/logs
