@@ -11,4 +11,6 @@
     - Nest, Express, Git Actions, EC2
 - FE
     - Next, Vercel, RN(Web View)
+- ETC(Mobile)
+    - Expo
 ```
